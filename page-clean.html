@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>PageClean — document photo cleanup</title>
+<!--
+  PageClean — single-file, offline-capable tool that turns sloppy phone photos of
+  pages into clean, flat, scanner-quality output.
+  Distribution: one HTML file. Open it in a browser; it runs entirely locally.
+  First load fetches OpenCV (image engine) + jsPDF (PDF export) from a CDN.
+  For fully offline use, put opencv.js next to this file and set OPENCV_URLS = ["opencv.js"].
+-->
+<style>
+  :root{
+    --surface-0:#ffffff; --surface-1:#f3f5f7; --surface-2:#e9ecf1;
+    --bed:#15181e; --bed-glow:#1e222b;
+    --ink:#14171c; --ink-2:#586173; --ink-3:#8b94a4;
+    --line:#e3e6ec; --line-strong:#d2d8e1;
+    --accent:#364fc7; --accent-strong:#2a3da0; --accent-weak:#eaedfb;
+    --signal:#f08c00; --signal-weak:#fff4e2;
+    --ok:#2f9e44; --danger:#e03131;
+    --r:11px; --r-sm:8px;
+    --mono:"SF Mono","JetBrains Mono","Cascadia Code",ui-monospace,Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--ui);color:var(--ink);background:var(--surface-1);
+    -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+
+  .topbar{display:flex;align-items:center;gap:14px;padding:11px 18px;background:var(--surface-0);
+    border-bottom:1px solid var(--line);flex:0 0 auto;z-index:5}
+  .brand{display:flex;align-items:baseline;gap:9px;margin-right:6px;user-select:none}
+  .brand .mark{font-family:var(--mono);font-weight:700;font-size:14px;letter-spacing:.5px;color:#fff;
+    background:var(--ink);padding:4px 7px;border-radius:6px;line-height:1}
+  .brand .name{font-weight:650;font-size:15px;letter-spacing:-.2px}
+  .brand .name b{color:var(--accent)}
+  .topbar .spacer{flex:1}
+  .filemeta{font-family:var(--mono);font-size:12px;color:var(--ink-3);max-width:38vw;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .filemeta b{color:var(--ink-2);font-weight:600}
+
+  .btn{font-family:var(--ui);font-size:13px;font-weight:560;cursor:pointer;border:1px solid var(--line-strong);
+    background:var(--surface-0);color:var(--ink);padding:8px 13px;border-radius:var(--r-sm);line-height:1;
+    transition:.13s;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .btn:hover{border-color:var(--ink-3);background:#fbfcfd}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+  .btn.ghost:hover{background:var(--surface-2);color:var(--ink)}
+  .btn.danger:hover{border-color:var(--danger);color:var(--danger);background:#fff5f5}
+  .btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .btn svg{width:15px;height:15px;flex:0 0 auto}
+
+  .stepper{display:flex;align-items:stretch;background:var(--surface-0);border-bottom:1px solid var(--line);
+    padding:0 10px;flex:0 0 auto;overflow-x:auto;scrollbar-width:none}
+  .stepper::-webkit-scrollbar{display:none}
+  .step{appearance:none;border:0;background:none;cursor:pointer;font-family:var(--ui);display:flex;
+    align-items:center;gap:10px;padding:13px 16px;position:relative;color:var(--ink-3);transition:.15s;white-space:nowrap}
+  .step:disabled{cursor:not-allowed}
+  .step:not(:disabled):hover{color:var(--ink-2)}
+  .step .num{font-family:var(--mono);font-size:12px;font-weight:600;width:24px;height:24px;border-radius:50%;
+    display:grid;place-items:center;border:1.5px solid var(--line-strong);color:var(--ink-3);
+    background:var(--surface-0);transition:.15s;flex:0 0 auto}
+  .step .lab{font-size:13px;font-weight:560;letter-spacing:-.1px}
+  .step.done .num{background:var(--accent-weak);border-color:transparent;color:var(--accent)}
+  .step.done{color:var(--ink-2)}
+  .step.active{color:var(--ink)}
+  .step.active .num{background:var(--signal);border-color:var(--signal);color:#fff;box-shadow:0 0 0 4px var(--signal-weak)}
+  .step.active::after{content:"";position:absolute;left:16px;right:16px;bottom:0;height:2px;background:var(--signal);border-radius:2px 2px 0 0}
+
+  .work{display:flex;flex:1 1 auto;min-height:0}
+  .bed{flex:1 1 auto;min-width:0;position:relative;
+    background:radial-gradient(120% 120% at 50% 38%,var(--bed-glow),var(--bed) 70%);
+    display:grid;place-items:center;padding:26px;overflow:hidden}
+  .stage-wrap{position:relative;line-height:0;max-width:100%;max-height:100%;
+    box-shadow:0 10px 40px rgba(0,0,0,.5);transition:width .12s,height .12s}
+  canvas.disp,canvas.ovl{position:absolute;inset:0;width:100%;height:100%;border-radius:2px}
+  canvas.disp{background:#fff}
+  canvas.ovl{cursor:crosshair;touch-action:none}
+
+  .badge{position:absolute;left:18px;bottom:16px;font-family:var(--mono);font-size:11px;color:#aeb6c4;
+    background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.07);padding:5px 9px;border-radius:6px;
+    backdrop-filter:blur(4px);user-select:none}
+
+  .empty{width:min(440px,82vw);text-align:center;color:#cfd6e2;cursor:pointer;line-height:1.5;
+    border:1.5px dashed rgba(255,255,255,.18);border-radius:14px;padding:44px 32px;transition:.15s;
+    background:rgba(255,255,255,.02)}
+  .empty.drag{border-color:var(--signal);background:rgba(240,140,0,.06);color:#fff}
+  .empty .ic{width:46px;height:46px;margin:0 auto 16px;opacity:.7;display:block}
+  .empty h2{font-size:18px;font-weight:620;margin:0 0 6px;color:#fff;letter-spacing:-.2px}
+  .empty p{font-size:13.5px;margin:0;line-height:1.5;color:#9aa3b2}
+  .empty .hint{font-family:var(--mono);font-size:11px;margin-top:14px;color:#6b7384}
+
+  .loading{position:absolute;inset:0;display:none;place-items:center;background:rgba(15,18,22,.72);
+    backdrop-filter:blur(3px);z-index:9}
+  .loading.on{display:grid}
+  .spin{width:34px;height:34px;border:3px solid rgba(255,255,255,.18);border-top-color:#fff;border-radius:50%;
+    animation:sp .8s linear infinite;margin:0 auto 14px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .loading .msg{color:#e6eaf1;font-size:13.5px;text-align:center;font-weight:540}
+  .loading .sub{color:#8b94a4;font-family:var(--mono);font-size:11px;margin-top:6px;text-align:center}
+
+  .panel{flex:0 0 318px;width:318px;background:var(--surface-0);border-left:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0}
+  .panel-head{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+  .panel-head .k{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;letter-spacing:.4px}
+  .panel-head h3{margin:5px 0 3px;font-size:16px;font-weight:640;letter-spacing:-.3px}
+  .panel-head p{margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+  .panel-body{flex:1 1 auto;overflow-y:auto;padding:16px 18px 4px}
+  .panel-foot{padding:13px 18px;border-top:1px solid var(--line);display:flex;gap:9px}
+  .panel-foot .btn{flex:1;justify-content:center}
+
+  .group{margin-bottom:20px}
+  .group.hide{display:none}
+  .group > label{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:9px;letter-spacing:-.1px}
+  .row{display:flex;gap:8px}
+  .row.wrap{flex-wrap:wrap}
+
+  .chip{appearance:none;cursor:pointer;font-family:var(--ui);font-size:12.5px;font-weight:540;
+    border:1px solid var(--line-strong);background:var(--surface-0);color:var(--ink);padding:8px 11px;
+    border-radius:var(--r-sm);transition:.12s;display:inline-flex;align-items:center;gap:6px}
+  .chip:hover{border-color:var(--ink-3)}
+  .chip svg{width:14px;height:14px}
+
+  .modegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .modecard{appearance:none;cursor:pointer;text-align:left;font-family:var(--ui);border:1px solid var(--line-strong);
+    background:var(--surface-0);border-radius:var(--r-sm);padding:10px 11px;transition:.12s}
+  .modecard:hover{border-color:var(--ink-3)}
+  .modecard.on{border-color:var(--accent);background:var(--accent-weak)}
+  .modecard .t{font-size:13px;font-weight:600;display:block;margin-bottom:2px}
+  .modecard .d{font-size:11px;color:var(--ink-2);display:block;line-height:1.3}
+  .modecard.on .t{color:var(--accent-strong)}
+
+  .slider{display:flex;align-items:center;gap:11px}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:3px;flex:1;
+    background:var(--surface-2);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--accent);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--accent);
+    border:2px solid #fff;cursor:pointer}
+  input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .val{font-family:var(--mono);font-size:12px;color:var(--ink-2);min-width:46px;text-align:right;font-weight:560}
+
+  select,input[type=number]{font-family:var(--ui);font-size:13px;color:var(--ink);background:var(--surface-0);
+    border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:8px 10px;width:100%}
+  select:focus,input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+  .field{flex:1}
+  .field .cap{font-size:11px;color:var(--ink-3);font-weight:560;margin-bottom:5px;display:block}
+
+  input[type=color]{-webkit-appearance:none;appearance:none;width:38px;height:38px;border:1px solid var(--line-strong);
+    border-radius:var(--r-sm);background:none;cursor:pointer;padding:3px}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+
+  .check{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--ink);user-select:none;margin-bottom:4px}
+  .check input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+
+  .readout{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);background:var(--surface-1);
+    border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 12px;line-height:1.7}
+  .readout .lbl{color:var(--ink-3)}
+  .readout b{color:var(--ink);font-weight:600}
+
+  .note{font-size:11.5px;color:var(--ink-3);line-height:1.5;margin-top:10px}
+  .note b{color:var(--ink-2);font-weight:600}
+
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);
+    color:#fff;font-size:13px;padding:11px 18px;border-radius:9px;box-shadow:0 8px 30px rgba(0,0,0,.3);opacity:0;
+    pointer-events:none;transition:.25s;z-index:50;max-width:90vw}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.err{background:var(--danger)}
+  .toast.ok{background:var(--ok)}
+
+  @media (max-width:880px){
+    .work{flex-direction:column}
+    .panel{flex:0 0 auto;width:100%;border-left:0;border-top:1px solid var(--line);max-height:50vh}
+    .bed{padding:16px;min-height:240px}
+    .filemeta{max-width:30vw}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation-duration:.01ms!important}}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="mark">PC</span><span class="name">Page<b>Clean</b></span></div>
+    <button class="btn" id="openBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2-2h4l2 2h5v12H3z"/><circle cx="12" cy="13" r="3.2"/></svg>
+      Open image
+    </button>
+    <span class="filemeta" id="fileMeta">No image loaded</span>
+    <div class="spacer"></div>
+    <button class="btn ghost danger" id="resetBtn" disabled>Reset all</button>
+    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" hidden />
+  </div>
+
+  <nav class="stepper" id="stepper">
+    <button class="step active" data-step="1" disabled><span class="num">1</span><span class="lab">Orient</span></button>
+    <button class="step" data-step="2" disabled><span class="num">2</span><span class="lab">Dewarp</span></button>
+    <button class="step" data-step="3" disabled><span class="num">3</span><span class="lab">Crop &amp; fill</span></button>
+    <button class="step" data-step="4" disabled><span class="num">4</span><span class="lab">Color</span></button>
+    <button class="step" data-step="5" disabled><span class="num">5</span><span class="lab">Export</span></button>
+  </nav>
+
+  <div class="work">
+    <div class="bed" id="bed">
+      <div class="empty" id="empty">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        <h2>Open a photo of a page</h2>
+        <p>Drag a JPG or PNG here, or click to choose one. Everything runs on your machine — nothing leaves the browser.</p>
+        <div class="hint">JPG · PNG · WEBP</div>
+      </div>
+      <div class="stage-wrap" id="stageWrap" style="display:none">
+        <canvas class="disp" id="disp" width="10" height="10"></canvas>
+        <canvas class="ovl" id="ovl" width="10" height="10"></canvas>
+      </div>
+      <div class="badge" id="badge" style="display:none"></div>
+      <div class="loading" id="loading"><div><div class="spin"></div><div class="msg" id="loadMsg">Loading image engine…</div><div class="sub" id="loadSub">first run only</div></div></div>
+    </div>
+
+    <aside class="panel">
+      <div class="panel-head">
+        <span class="k" id="pK">STEP 1 / 5</span>
+        <h3 id="pTitle">Orient</h3>
+        <p id="pDesc">Rotate the page upright.</p>
+      </div>
+      <div class="panel-body" id="pBody"></div>
+      <div class="panel-foot">
+        <button class="btn ghost" id="backBtn" disabled>Back</button>
+        <button class="btn primary" id="nextBtn" disabled>Next</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+"use strict";
+/* =================== config =================== */
+const OPENCV_URLS = [
+  "https://docs.opencv.org/4.x/opencv.js",
+  "https://docs.opencv.org/4.10.0/opencv.js",
+  "https://docs.opencv.org/4.8.0/opencv.js"
+];
+const PAGE_SIZES = { A3:[297,420], A4:[210,297], A5:[148,210], Letter:[215.9,279.4], Legal:[215.9,355.6] };
+const WORK_MAX = 2200;
+let cv = null;
+
+const S = {
+  fileName:"", srcFull:null, work:null, workScale:1,
+  rotation:0, fineAngle:0,
+  quad:null, crop:null, stageOrigin:{x:0,y:0}, quadOff:{x:0,y:0},
+  curlMode:false, edges:null,
+  fill:[255,255,255], showWarpResult:false, warpW:0, warpH:0,
+  color:{ mode:"bw_adaptive", brightness:0, contrast:1.0, threshold:128, autoThreshold:true, blockSize:31, C:12 },
+  page:{ size:"A4", orient:"auto", dpi:300, format:"pdf", marginMM:8, antialias:true },
+  step:1
+};
+const cache = { oriented:null, persp:null, warped:null, cropped:null, colored:null };
+
+/* =================== DOM helpers =================== */
+const el = {};
+["bed","stageWrap","empty","disp","ovl","badge","loading","loadMsg","loadSub","fileInput","openBtn",
+ "resetBtn","stepper","pK","pTitle","pDesc","pBody","backBtn","nextBtn","fileMeta","toast"].forEach(id=>el[id]=document.getElementById(id));
+
+const _css={};
+function css(v){ if(!(v in _css)) _css[v]=getComputedStyle(document.documentElement).getPropertyValue(v).trim()||"#000"; return _css[v]; }
+function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+function odd(v){ v=Math.round(v); if(v<3)v=3; if(v%2===0)v+=1; return v; }
+function hex(rgb){ return "#"+rgb.map(c=>Math.max(0,Math.min(255,c|0)).toString(16).padStart(2,"0")).join(""); }
+function fromHex(h){ const n=parseInt(h.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+
+let toastTimer=null;
+function toast(msg,kind){ el.toast.textContent=msg; el.toast.className="toast on"+(kind?(" "+kind):"");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ el.toast.className="toast"+(kind?(" "+kind):""); },2600); }
+function showLoading(m,s){ el.loadMsg.textContent=m||"Working…"; el.loadSub.textContent=s||""; el.loading.classList.add("on"); }
+function hideLoading(){ el.loading.classList.remove("on"); }
+
+/* =================== OpenCV loader =================== */
+function injectScript(url){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=url; s.async=true; s.onload=()=>res(); s.onerror=()=>rej(new Error("load fail "+url)); document.head.appendChild(s); }); }
+async function initOpenCv(){
+  let ok=false,last=null;
+  for(const u of OPENCV_URLS){ try{ await injectScript(u); ok=true; break; }catch(e){ last=e; } }
+  if(!ok) throw last||new Error("no opencv");
+  if(typeof window.cv==="function"){ window.cv=await window.cv(); }
+  await new Promise((res,rej)=>{ const t0=Date.now(); (function p(){ if(window.cv&&typeof window.cv.Mat==="function") return res(); if(Date.now()-t0>45000) return rej(new Error("opencv init timeout")); setTimeout(p,50); })(); });
+  cv=window.cv;
+}
+
+/* =================== primitives (return NEW Mats) =================== */
+function orientMat(src,rot,angle,fill){
+  let m=new cv.Mat();
+  if(rot===90) cv.rotate(src,m,cv.ROTATE_90_CLOCKWISE);
+  else if(rot===180) cv.rotate(src,m,cv.ROTATE_180);
+  else if(rot===270) cv.rotate(src,m,cv.ROTATE_90_COUNTERCLOCKWISE);
+  else src.copyTo(m);
+  if(angle&&Math.abs(angle)>0.01){
+    const c=new cv.Point(m.cols/2,m.rows/2), M=cv.getRotationMatrix2D(c,angle,1), dst=new cv.Mat();
+    cv.warpAffine(m,dst,M,new cv.Size(m.cols,m.rows),cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar(fill[0],fill[1],fill[2],255));
+    M.delete(); m.delete(); m=dst;
+  }
+  return m;
+}
+function warpMat(src,q,fill){
+  const w=Math.max(dist(q[0],q[1]),dist(q[3],q[2])), h=Math.max(dist(q[0],q[3]),dist(q[1],q[2]));
+  const W=Math.max(1,Math.round(w)), H=Math.max(1,Math.round(h));
+  const srcTri=cv.matFromArray(4,1,cv.CV_32FC2,[q[0].x,q[0].y,q[1].x,q[1].y,q[2].x,q[2].y,q[3].x,q[3].y]);
+  const dstTri=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,W,0,W,H,0,H]);
+  const M=cv.getPerspectiveTransform(srcTri,dstTri), dst=new cv.Mat();
+  cv.warpPerspective(src,dst,M,new cv.Size(W,H),cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar(fill[0],fill[1],fill[2],255));
+  srcTri.delete(); dstTri.delete(); M.delete();
+  return {mat:dst,w:W,h:H};
+}
+function cropMat(src,crop,fill){
+  const W=Math.max(1,Math.round(crop.w)), H=Math.max(1,Math.round(crop.h));
+  const dst=new cv.Mat(H,W,src.type(),new cv.Scalar(fill[0],fill[1],fill[2],255));
+  const cx=Math.round(crop.x), cy=Math.round(crop.y);
+  const sx=Math.max(0,cx), sy=Math.max(0,cy), sx2=Math.min(src.cols,cx+W), sy2=Math.min(src.rows,cy+H);
+  if(sx2>sx&&sy2>sy){ const sR=src.roi(new cv.Rect(sx,sy,sx2-sx,sy2-sy)); const dR=dst.roi(new cv.Rect(sx-cx,sy-cy,sx2-sx,sy2-sy)); sR.copyTo(dR); sR.delete(); dR.delete(); }
+  return dst;
+}
+function colorMat(src,c){
+  let out;
+  if(c.mode==="original"){
+    const rgb=new cv.Mat(); cv.cvtColor(src,rgb,cv.COLOR_RGBA2RGB);
+    const adj=new cv.Mat(); rgb.convertTo(adj,-1,c.contrast,c.brightness);
+    out=new cv.Mat(); cv.cvtColor(adj,out,cv.COLOR_RGB2RGBA); rgb.delete(); adj.delete();
+  } else {
+    const gray=new cv.Mat(); cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
+    const adj=new cv.Mat(); gray.convertTo(adj,-1,c.contrast,c.brightness); gray.delete();
+    if(c.mode==="grayscale"){ out=new cv.Mat(); cv.cvtColor(adj,out,cv.COLOR_GRAY2RGBA); }
+    else if(c.mode==="bw_adaptive"){ const bw=new cv.Mat(); cv.adaptiveThreshold(adj,bw,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,odd(c.blockSize),c.C); out=new cv.Mat(); cv.cvtColor(bw,out,cv.COLOR_GRAY2RGBA); bw.delete(); }
+    else { const bw=new cv.Mat(); if(c.autoThreshold) cv.threshold(adj,bw,0,255,cv.THRESH_BINARY|cv.THRESH_OTSU); else cv.threshold(adj,bw,c.threshold,255,cv.THRESH_BINARY); out=new cv.Mat(); cv.cvtColor(bw,out,cv.COLOR_GRAY2RGBA); bw.delete(); }
+    adj.delete();
+  }
+  return out;
+}
+
+/* =================== auto edge detection =================== */
+function orderQuad(pts){
+  let tl=pts[0],br=pts[0],tr=pts[0],bl=pts[0],minS=Infinity,maxS=-Infinity,minD=Infinity,maxD=-Infinity;
+  for(const p of pts){ const s=p.x+p.y,d=p.y-p.x;
+    if(s<minS){minS=s;tl=p;} if(s>maxS){maxS=s;br=p;} if(d<minD){minD=d;tr=p;} if(d>maxD){maxD=d;bl=p;} }
+  return [tl,tr,br,bl];
+}
+function autoDetect(src){
+  try{
+    const g=new cv.Mat(); cv.cvtColor(src,g,cv.COLOR_RGBA2GRAY); cv.GaussianBlur(g,g,new cv.Size(5,5),0);
+    const edges=new cv.Mat(); cv.Canny(g,edges,60,180);
+    const k=cv.Mat.ones(3,3,cv.CV_8U); cv.dilate(edges,edges,k); k.delete();
+    const contours=new cv.MatVector(), hi=new cv.Mat();
+    cv.findContours(edges,contours,hi,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
+    let best=null,bestArea=src.cols*src.rows*0.18;
+    for(let i=0;i<contours.size();i++){
+      const ct=contours.get(i), area=cv.contourArea(ct);
+      if(area>bestArea){
+        const peri=cv.arcLength(ct,true), ap=new cv.Mat(); cv.approxPolyDP(ct,ap,0.02*peri,true);
+        if(ap.rows===4){ const p=[]; for(let j=0;j<4;j++) p.push({x:ap.data32S[j*2],y:ap.data32S[j*2+1]}); best=orderQuad(p); bestArea=area; }
+        ap.delete();
+      }
+      ct.delete();
+    }
+    g.delete(); edges.delete(); contours.delete(); hi.delete();
+    return best;
+  }catch(e){ return null; }
+}
+
+/* =================== cached pipeline =================== */
+function invalidate(from){
+  const order=["oriented","persp","warped","cropped","colored"];
+  for(let i=order.indexOf(from);i<order.length;i++){ const k=order[i]; if(cache[k]){ cache[k].delete(); cache[k]=null; } }
+}
+function oriented(){ if(!cache.oriented) cache.oriented=orientMat(S.work,S.rotation,S.fineAngle,S.fill); return cache.oriented; }
+// perspective-rectified page (exact 4-corner homography)
+function persp(){
+  if(!cache.persp){
+    const r=warpMat(oriented(),S.quad,S.fill); cache.persp=r.mat; S.warpW=r.w; S.warpH=r.h;
+    if(!S.edges) S.edges=straightEdges(r.w,r.h);
+    if(!S.crop) S.crop={x:0,y:0,w:r.w,h:r.h};
+  }
+  return cache.persp;
+}
+// straight-edge defaults (each value is the point the edge passes through at its midpoint)
+function straightEdges(w,h){ return { top:{x:w/2,y:0}, bottom:{x:w/2,y:h}, left:{x:0,y:h/2}, right:{x:w,y:h/2} }; }
+function edgesBent(){
+  if(!S.edges) return false;
+  const e=S.edges, w=S.warpW, h=S.warpH, t=Math.max(2,Math.max(w,h)*0.004);
+  return Math.abs(e.top.y)>t || Math.abs(e.bottom.y-h)>t || Math.abs(e.left.x)>t || Math.abs(e.right.x-w)>t ||
+         Math.abs(e.top.x-w/2)>t || Math.abs(e.bottom.x-w/2)>t || Math.abs(e.left.y-h/2)>t || Math.abs(e.right.y-h/2)>t;
+}
+function curlActive(){ return S.curlMode && edgesBent(); }
+// Coons-patch remap: bends the 4 edges of a rectangle into quadratic Beziers through the handles
+function coonsRemap(src, edges){
+  const W=src.cols, H=src.rows, G=80;
+  const C00={x:0,y:0}, C10={x:W,y:0}, C11={x:W,y:H}, C01={x:0,y:H};
+  const ctrl=(A,B,M)=>({x:2*M.x-(A.x+B.x)/2, y:2*M.y-(A.y+B.y)/2});
+  const bez=(A,P,B,t)=>{ const u=1-t; return {x:u*u*A.x+2*u*t*P.x+t*t*B.x, y:u*u*A.y+2*u*t*P.y+t*t*B.y}; };
+  const cTop=ctrl(C00,C10,edges.top), cBot=ctrl(C01,C11,edges.bottom), cLeft=ctrl(C00,C01,edges.left), cRight=ctrl(C10,C11,edges.right);
+  const mx=new cv.Mat(G,G,cv.CV_32FC1), my=new cv.Mat(G,G,cv.CV_32FC1);
+  for(let j=0;j<G;j++){ const v=j/(G-1);
+    for(let i=0;i<G;i++){ const u=i/(G-1);
+      const top=bez(C00,cTop,C10,u), bot=bez(C01,cBot,C11,u), lef=bez(C00,cLeft,C01,v), rig=bez(C10,cRight,C11,v);
+      const sx=(1-v)*top.x+v*bot.x+(1-u)*lef.x+u*rig.x-((1-u)*(1-v)*C00.x+u*(1-v)*C10.x+(1-u)*v*C01.x+u*v*C11.x);
+      const sy=(1-v)*top.y+v*bot.y+(1-u)*lef.y+u*rig.y-((1-u)*(1-v)*C00.y+u*(1-v)*C10.y+(1-u)*v*C01.y+u*v*C11.y);
+      mx.data32F[j*G+i]=sx; my.data32F[j*G+i]=sy;
+    }
+  }
+  const fmx=new cv.Mat(), fmy=new cv.Mat();
+  cv.resize(mx,fmx,new cv.Size(W,H),0,0,cv.INTER_LINEAR);
+  cv.resize(my,fmy,new cv.Size(W,H),0,0,cv.INTER_LINEAR);
+  mx.delete(); my.delete();
+  const dst=new cv.Mat();
+  cv.remap(src,dst,fmx,fmy,cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar(S.fill[0],S.fill[1],S.fill[2],255));
+  fmx.delete(); fmy.delete();
+  return dst;
+}
+function scaleEdges(e,f){ const s=p=>({x:p.x*f,y:p.y*f}); return {top:s(e.top),bottom:s(e.bottom),left:s(e.left),right:s(e.right)}; }
+function warped(){
+  if(curlActive()){ if(!cache.warped) cache.warped=coonsRemap(persp(),S.edges); return cache.warped; }
+  return persp();
+}
+function cropped(){ if(!cache.cropped) cache.cropped=cropMat(warped(),S.crop,S.fill); return cache.cropped; }
+function colored(){ if(!cache.colored) cache.colored=colorMat(cropped(),S.color); return cache.colored; }
+
+function insetQuad(m){ const mx=m.cols*0.06,my=m.rows*0.06; return [{x:mx,y:my},{x:m.cols-mx,y:my},{x:m.cols-mx,y:m.rows-my},{x:mx,y:m.rows-my}]; }
+function resetQuad(auto){ invalidate("oriented"); const m=oriented(); let q=null; if(auto) q=autoDetect(m); S.quad=q||insetQuad(m); S.crop=null; S.edges=null; invalidate("persp"); }
+
+/* =================== canvas display + overlay =================== */
+function setStageSize(w,h){ el.disp.width=w; el.disp.height=h; el.ovl.width=w; el.ovl.height=h; fitStage(w,h); }
+function fitStage(w,h){ const bw=el.bed.clientWidth-52, bh=el.bed.clientHeight-52; const sc=Math.min(bw/w,bh/h,1.6); el.stageWrap.style.width=Math.max(40,Math.round(w*sc))+"px"; el.stageWrap.style.height=Math.max(40,Math.round(h*sc))+"px"; }
+function showMat(m){ setStageSize(m.cols,m.rows); cv.imshow(el.disp,m); }
+function clearOverlay(){ el.ovl.getContext("2d").clearRect(0,0,el.ovl.width,el.ovl.height); }
+function ovlScale(){ const r=el.ovl.getBoundingClientRect(); return el.ovl.width/Math.max(1,r.width); }
+function evToImg(e){ const r=el.ovl.getBoundingClientRect(); const cx=e.touches?e.touches[0].clientX:e.clientX, cy=e.touches?e.touches[0].clientY:e.clientY; return {x:(cx-r.left)*(el.ovl.width/r.width),y:(cy-r.top)*(el.ovl.height/r.height)}; }
+function drawHandle(ctx,x,y,r){ ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle="#fff"; ctx.fill(); ctx.lineWidth=Math.max(1.5,r*0.32); ctx.strokeStyle=css("--signal"); ctx.stroke(); }
+function drawOverlay(type){
+  const ctx=el.ovl.getContext("2d"); ctx.clearRect(0,0,el.ovl.width,el.ovl.height);
+  const s=ovlScale(), R=11*s, LW=2*s;
+  if(type==="quad"){
+    const off=S.quadOff, img=S.quadImg, q=S.quad;
+    ctx.save(); ctx.setLineDash([6*s,5*s]); ctx.lineWidth=1.5*s; ctx.strokeStyle="rgba(255,255,255,0.35)";
+    ctx.strokeRect(off.x,off.y,img.w,img.h); ctx.restore();
+    ctx.lineWidth=LW; ctx.strokeStyle=css("--accent"); ctx.fillStyle="rgba(54,79,199,0.10)";
+    ctx.beginPath(); ctx.moveTo(q[0].x+off.x,q[0].y+off.y); for(let i=1;i<4;i++) ctx.lineTo(q[i].x+off.x,q[i].y+off.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for(const p of q) drawHandle(ctx,p.x+off.x,p.y+off.y,R);
+  } else if(type==="edges"){
+    const W=S.warpW,H=S.warpH,e=S.edges;
+    const C00={x:0,y:0},C10={x:W,y:0},C11={x:W,y:H},C01={x:0,y:H};
+    const ctrl=(A,B,M)=>({x:2*M.x-(A.x+B.x)/2,y:2*M.y-(A.y+B.y)/2});
+    const bez=(A,P,B,t)=>{const u=1-t;return{x:u*u*A.x+2*u*t*P.x+t*t*B.x,y:u*u*A.y+2*u*t*P.y+t*t*B.y};};
+    ctx.save(); ctx.setLineDash([6*s,5*s]); ctx.lineWidth=1.2*s; ctx.strokeStyle="rgba(255,255,255,0.28)"; ctx.strokeRect(0,0,W,H); ctx.restore();
+    ctx.lineWidth=LW; ctx.strokeStyle=css("--accent");
+    const edge=(A,B,M)=>{ const P=ctrl(A,B,M); ctx.beginPath(); for(let t=0;t<=1.0001;t+=1/48){ const pt=bez(A,P,B,t); if(t===0) ctx.moveTo(pt.x,pt.y); else ctx.lineTo(pt.x,pt.y);} ctx.stroke(); };
+    edge(C00,C10,e.top); edge(C01,C11,e.bottom); edge(C00,C01,e.left); edge(C10,C11,e.right);
+    for(const k of ["top","bottom","left","right"]) drawHandle(ctx,e[k].x,e[k].y,R);
+  } else if(type==="crop"){
+    const o=S.stageOrigin, r={x:S.crop.x-o.x,y:S.crop.y-o.y,w:S.crop.w,h:S.crop.h};
+    ctx.fillStyle="rgba(15,17,22,0.45)"; ctx.fillRect(0,0,el.ovl.width,el.ovl.height); ctx.clearRect(r.x,r.y,r.w,r.h);
+    ctx.lineWidth=LW; ctx.strokeStyle=css("--signal"); ctx.strokeRect(r.x,r.y,r.w,r.h);
+    const pts=[[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.h],[r.x,r.y+r.h],[r.x+r.w/2,r.y],[r.x+r.w,r.y+r.h/2],[r.x+r.w/2,r.y+r.h],[r.x,r.y+r.h/2]];
+    for(const [hx,hy] of pts) drawHandle(ctx,hx,hy,R);
+  }
+}
+// step-2 stage: oriented image inset inside a neutral margin, so corners can be dragged past the photo edge
+function buildQuadStage(){
+  const m=oriented(); const pad=Math.round(0.22*Math.max(m.cols,m.rows));
+  S.quadOff={x:pad,y:pad}; S.quadImg={w:m.cols,h:m.rows};
+  const W=m.cols+2*pad, H=m.rows+2*pad;
+  const stage=new cv.Mat(H,W,m.type(),new cv.Scalar(52,56,64,255));
+  const dR=stage.roi(new cv.Rect(pad,pad,m.cols,m.rows)); m.copyTo(dR); dR.delete();
+  return stage;
+}
+function buildCropStage(){
+  const w=warped();
+  const ox=Math.min(0,Math.round(S.crop.x)), oy=Math.min(0,Math.round(S.crop.y));
+  const right=Math.max(w.cols,Math.round(S.crop.x+S.crop.w)), bottom=Math.max(w.rows,Math.round(S.crop.y+S.crop.h));
+  const W=right-ox, H=bottom-oy; S.stageOrigin={x:ox,y:oy};
+  const stage=new cv.Mat(H,W,w.type(),new cv.Scalar(S.fill[0],S.fill[1],S.fill[2],255));
+  const dR=stage.roi(new cv.Rect(-ox,-oy,w.cols,w.rows)); w.copyTo(dR); dR.delete();
+  return stage;
+}
+
+/* =================== pointer interaction =================== */
+let drag=null;
+function endDrag(){ if(drag){ drag.commit&&drag.commit(); drag=null; window.removeEventListener("pointermove",onMove); window.removeEventListener("pointerup",endDrag); } }
+function onMove(e){ if(drag) drag.move(evToImg(e)); }
+function beginDrag(d){ drag=d; window.addEventListener("pointermove",onMove); window.addEventListener("pointerup",endDrag); }
+el.ovl.addEventListener("pointerdown",e=>{ if(!S.work) return; const p=evToImg(e);
+  if(S.step===2 && !S.showWarpResult){ if(S.curlMode) startEdgeDrag(p); else startQuadDrag(p); }
+  else if(S.step===3) startCropDrag(p);
+});
+function startQuadDrag(p){
+  const s=ovlScale(), R=16*s, off=S.quadOff, img=S.quadImg, ip={x:p.x-off.x,y:p.y-off.y};
+  let idx=-1,best=R; S.quad.forEach((q,i)=>{ const d=dist(q,ip); if(d<best){best=d;idx=i;} });
+  if(idx<0) return; const pad=off.x;
+  beginDrag({ move(pt){
+      const ix=Math.max(-pad,Math.min(img.w+pad,pt.x-off.x)), iy=Math.max(-pad,Math.min(img.h+pad,pt.y-off.y));
+      S.quad[idx]={x:ix,y:iy}; drawOverlay("quad");
+    }, commit(){ S.crop=null; S.edges=null; invalidate("persp"); } });
+}
+function startEdgeDrag(p){
+  const s=ovlScale(), R=18*s, W=S.warpW, H=S.warpH;
+  let key=null,bd=R; for(const k of ["top","bottom","left","right"]){ const d=dist(S.edges[k],p); if(d<bd){bd=d;key=k;} }
+  if(!key) return;
+  beginDrag({ move(pt){ S.edges[key]={x:Math.max(0,Math.min(W,pt.x)),y:Math.max(0,Math.min(H,pt.y))}; drawOverlay("edges"); },
+              commit(){ invalidate("warped"); if(S.showWarpResult) render(); } });
+}
+function startCropDrag(p){
+  const s=ovlScale(), R=15*s, c={x:S.crop.x,y:S.crop.y,w:S.crop.w,h:S.crop.h};
+  const H={tl:{x:c.x,y:c.y},tr:{x:c.x+c.w,y:c.y},br:{x:c.x+c.w,y:c.y+c.h},bl:{x:c.x,y:c.y+c.h},t:{x:c.x+c.w/2,y:c.y},r:{x:c.x+c.w,y:c.y+c.h/2},b:{x:c.x+c.w/2,y:c.y+c.h},l:{x:c.x,y:c.y+c.h/2}};
+  let mode=null,bd=R; for(const k in H){ const d=dist(H[k],p); if(d<bd){bd=d;mode=k;} }
+  const inside=p.x>c.x&&p.x<c.x+c.w&&p.y>c.y&&p.y<c.y+c.h;
+  if(!mode&&inside) mode="move"; if(!mode) return;
+  const start={...c}, p0={x:p.x,y:p.y};
+  beginDrag({ move(pt){
+      let nx=start.x,ny=start.y,nw=start.w,nh=start.h; const dx=pt.x-p0.x,dy=pt.y-p0.y;
+      if(mode==="move"){ nx=start.x+dx; ny=start.y+dy; }
+      else{
+        if(mode==="tl"||mode==="l"||mode==="bl"){ nx=start.x+dx; nw=start.w-dx; }
+        if(mode==="tr"||mode==="r"||mode==="br"){ nw=start.w+dx; }
+        if(mode==="tl"||mode==="t"||mode==="tr"){ ny=start.y+dy; nh=start.h-dy; }
+        if(mode==="bl"||mode==="b"||mode==="br"){ nh=start.h+dy; }
+      }
+      if(nw<20) nw=20; if(nh<20) nh=20;
+      S.crop={x:nx,y:ny,w:nw,h:nh};
+      const stage=buildCropStage(); showMat(stage); stage.delete(); drawOverlay("crop");
+    }, commit(){ invalidate("cropped"); } });
+}
+window.addEventListener("resize",()=>{ if(S.work) render(); });
+/* =================== step metadata + controls =================== */
+const STEP_META={
+  1:{k:"STEP 1 / 5",t:"Orient",d:"Rotate the page upright. The next step squares up any small tilt for you."},
+  2:{k:"STEP 2 / 5",t:"Dewarp",d:"Drag the four corners onto the page corners — they can extend past the photo edge if the page is cropped. Enable curl correction for pages that aren't flat."},
+  3:{k:"STEP 3 / 5",t:"Crop & fill",d:"Set the final boundary. Pull the box past the edge to add clean margins — empty areas fill with the background."},
+  4:{k:"STEP 4 / 5",t:"Color",d:"Clean up the page. Black & white (adaptive) handles uneven phone-photo lighting best."},
+  5:{k:"STEP 5 / 5",t:"Export",d:"Fit the page onto a standard size and save it as a PDF or image."}
+};
+
+function controlsFor(step){
+  if(step===1) return `
+    <div class="group"><label>Rotate</label>
+      <div class="row">
+        <button class="chip" data-act="rotL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/></svg>Left 90°</button>
+        <button class="chip" data-act="rot180"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v4h-4"/></svg>180°</button>
+        <button class="chip" data-act="rotR"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 0-3 6.7"/><path d="M21 4v4h-4"/></svg>Right 90°</button>
+      </div></div>
+    <div class="group"><label>Fine tilt <span class="val" id="vFine">${S.fineAngle.toFixed(1)}°</span></label>
+      <div class="slider"><input type="range" id="rFine" min="-8" max="8" step="0.1" value="${S.fineAngle}"></div>
+      <div class="note">Usually unnecessary — Dewarp removes most skew. Use this only for a final nudge.</div></div>`;
+  if(step===2) return `
+    <div class="group"><div class="row">
+        <button class="chip" data-act="autodetect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>Auto-detect edges</button>
+        <button class="chip" data-act="resetcorners">Reset corners</button>
+      </div></div>
+    <div class="group"><label class="check"><input type="checkbox" id="cCurl" ${S.curlMode?"checked":""}> Flatten page curl <span style="color:var(--ink-3);font-weight:500">(curved edges)</span></label>
+      <div class="note">Off: drag the <b>four corners</b> (they may sit past the photo edge). On: the page is squared up first, then drag the <b>four edge handles</b> to trace bowed edges — useful for book pages that roll near the binding.</div></div>
+    <div class="group"><label class="check"><input type="checkbox" id="cWarpPreview" ${S.showWarpResult?"checked":""}> Show flattened result</label>
+      <div class="note">Toggle to confirm the page looks flat and square before continuing.</div></div>`;
+  if(step===3) return `
+    <div class="group"><label>Boundary</label>
+      <div class="row">
+        <button class="chip" data-act="cropFull">Reset to edges</button>
+        <button class="chip" data-act="cropExpand">+ Margin</button>
+        <button class="chip" data-act="cropShrink">– Margin</button>
+      </div>
+      <div class="note">Drag the box to set the boundary. Pulling <b>outside</b> the page adds background-filled margin, so content in the original margin isn't cut off.</div></div>
+    <div class="group"><label>Background fill</label>
+      <div class="row" style="align-items:center">
+        <input type="color" id="fillColor" value="${hex(S.fill)}">
+        <button class="chip" data-act="sampleFill" style="flex:1;justify-content:center">Sample from page</button>
+      </div>
+      <div class="note">Fills holes from the dewarp and any added margin.</div></div>`;
+  if(step===4) return `
+    <div class="group"><label>Output</label>
+      <div class="modegrid">
+        <button class="modecard ${S.color.mode==="bw_adaptive"?"on":""}" data-mode="bw_adaptive"><span class="t">B&amp;W · adaptive</span><span class="d">Best for uneven light</span></button>
+        <button class="modecard ${S.color.mode==="bw_threshold"?"on":""}" data-mode="bw_threshold"><span class="t">B&amp;W · threshold</span><span class="d">Even, crisp scans</span></button>
+        <button class="modecard ${S.color.mode==="grayscale"?"on":""}" data-mode="grayscale"><span class="t">Grayscale</span><span class="d">Keep tones</span></button>
+        <button class="modecard ${S.color.mode==="original"?"on":""}" data-mode="original"><span class="t">Colour</span><span class="d">Tune only</span></button>
+      </div></div>
+    <div class="group"><label>Brightness <span class="val" id="vBri">${S.color.brightness}</span></label>
+      <div class="slider"><input type="range" id="rBri" min="-100" max="100" step="1" value="${S.color.brightness}"></div></div>
+    <div class="group"><label>Contrast <span class="val" id="vCon">${S.color.contrast.toFixed(2)}×</span></label>
+      <div class="slider"><input type="range" id="rCon" min="50" max="250" step="1" value="${Math.round(S.color.contrast*100)}"></div></div>
+    <div class="group ${S.color.mode==="bw_adaptive"?"":"hide"}" id="gAdaptive">
+      <label>Detail size <span class="val" id="vBlk">${odd(S.color.blockSize)} px</span></label>
+      <div class="slider"><input type="range" id="rBlk" min="11" max="151" step="2" value="${odd(S.color.blockSize)}"></div>
+      <label style="margin-top:14px">Ink threshold <span class="val" id="vC">${S.color.C}</span></label>
+      <div class="slider"><input type="range" id="rC" min="0" max="30" step="1" value="${S.color.C}"></div>
+      <div class="note">Smaller detail size = sharper small text. Raise the ink threshold if the background speckles.</div></div>
+    <div class="group ${S.color.mode==="bw_threshold"?"":"hide"}" id="gThreshold">
+      <label class="check"><input type="checkbox" id="cAuto" ${S.color.autoThreshold?"checked":""}> Auto level (Otsu)</label>
+      <label style="margin-top:10px">Threshold <span class="val" id="vThr">${S.color.threshold}</span></label>
+      <div class="slider"><input type="range" id="rThr" min="0" max="255" step="1" value="${S.color.threshold}" ${S.color.autoThreshold?"disabled":""}></div></div>`;
+  if(step===5) return `
+    <div class="group"><label>Page size</label>
+      <select id="selSize">
+        <option value="A4">A4 · 210 × 297 mm</option>
+        <option value="A5">A5 · 148 × 210 mm</option>
+        <option value="A3">A3 · 297 × 420 mm</option>
+        <option value="Letter">US Letter · 8.5 × 11 in</option>
+        <option value="Legal">US Legal · 8.5 × 14 in</option>
+        <option value="fit">Fit to image (no padding)</option>
+      </select></div>
+    <div class="row" style="gap:10px">
+      <div class="field"><span class="cap">Orientation</span>
+        <select id="selOrient"><option value="auto">Auto</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></div>
+      <div class="field"><span class="cap">Resolution</span>
+        <select id="selDpi"><option value="150">150 dpi</option><option value="200">200 dpi</option><option value="300">300 dpi</option><option value="400">400 dpi</option><option value="600">600 dpi</option></select></div>
+    </div>
+    <div class="row" style="gap:10px;margin-top:16px">
+      <div class="field"><span class="cap">Format</span>
+        <select id="selFormat"><option value="pdf">PDF</option><option value="png">PNG</option><option value="jpg">JPG</option></select></div>
+      <div class="field" id="fMargin"><span class="cap">Page margin (mm)</span>
+        <input type="number" id="numMargin" min="0" max="40" step="1" value="${S.page.marginMM}"></div>
+    </div>
+    <div class="group ${(S.color.mode==="bw_adaptive"||S.color.mode==="bw_threshold")?"":"hide"}" id="gAntialias" style="margin-top:16px">
+      <label class="check"><input type="checkbox" id="cAntialias" ${S.page.antialias?"checked":""}> Smooth edges (anti-alias)</label>
+      <div class="note">Thresholds at full resolution, then down-samples with area averaging — removes the jagged staircasing on staff lines and thin strokes. Turn off for a hard 1-bit result. For sheet music, keep this on and use a high resolution or <b>Fit to image</b>.</div></div>
+    <div class="group" style="margin-top:18px"><div class="readout" id="exportReadout"></div></div>
+    <button class="btn primary" id="exportBtn" style="width:100%;justify-content:center;padding:11px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg> Export page</button>`;
+  return "";
+}
+
+function bindControls(step){
+  const body=el.pBody, on=(s,e,f)=>{ const n=body.querySelector(s); if(n) n.addEventListener(e,f); };
+  body.querySelectorAll("[data-act]").forEach(b=>b.addEventListener("click",()=>act(b.dataset.act)));
+  if(step===1){ on("#rFine","input",e=>{ S.fineAngle=parseFloat(e.target.value); body.querySelector("#vFine").textContent=S.fineAngle.toFixed(1)+"°"; invalidate("oriented"); renderPreviewOnly(); }); }
+  if(step===2){
+    on("#cCurl","change",e=>{ S.curlMode=e.target.checked; S.showWarpResult=false; const wp=body.querySelector("#cWarpPreview"); if(wp) wp.checked=false; invalidate("warped"); render(); });
+    on("#cWarpPreview","change",e=>{ S.showWarpResult=e.target.checked; render(); });
+  }
+  if(step===3){ on("#fillColor","input",e=>{ S.fill=fromHex(e.target.value); invalidate("warped"); render(); }); }
+  if(step===4){
+    body.querySelectorAll(".modecard").forEach(c=>c.addEventListener("click",()=>{
+      S.color.mode=c.dataset.mode; invalidate("colored");
+      body.querySelector("#gAdaptive").classList.toggle("hide",S.color.mode!=="bw_adaptive");
+      body.querySelector("#gThreshold").classList.toggle("hide",S.color.mode!=="bw_threshold");
+      body.querySelectorAll(".modecard").forEach(x=>x.classList.toggle("on",x===c));
+      renderPreviewOnly();
+    }));
+    on("#rBri","input",e=>{ S.color.brightness=parseInt(e.target.value); body.querySelector("#vBri").textContent=S.color.brightness; invalidate("colored"); renderPreviewOnly(); });
+    on("#rCon","input",e=>{ S.color.contrast=parseInt(e.target.value)/100; body.querySelector("#vCon").textContent=S.color.contrast.toFixed(2)+"×"; invalidate("colored"); renderPreviewOnly(); });
+    on("#rBlk","input",e=>{ S.color.blockSize=odd(parseInt(e.target.value)); body.querySelector("#vBlk").textContent=S.color.blockSize+" px"; invalidate("colored"); renderPreviewOnly(); });
+    on("#rC","input",e=>{ S.color.C=parseInt(e.target.value); body.querySelector("#vC").textContent=S.color.C; invalidate("colored"); renderPreviewOnly(); });
+    on("#cAuto","change",e=>{ S.color.autoThreshold=e.target.checked; const r=body.querySelector("#rThr"); if(r) r.disabled=e.target.checked; invalidate("colored"); renderPreviewOnly(); });
+    on("#rThr","input",e=>{ S.color.threshold=parseInt(e.target.value); body.querySelector("#vThr").textContent=S.color.threshold; invalidate("colored"); renderPreviewOnly(); });
+  }
+  if(step===5){
+    on("#selSize","change",e=>{ S.page.size=e.target.value; body.querySelector("#fMargin").style.visibility=(S.page.size==="fit")?"hidden":"visible"; renderExportPreview(); updateExportReadout(); });
+    on("#selOrient","change",e=>{ S.page.orient=e.target.value; renderExportPreview(); updateExportReadout(); });
+    on("#selDpi","change",e=>{ S.page.dpi=parseInt(e.target.value); updateExportReadout(); });
+    on("#selFormat","change",e=>{ S.page.format=e.target.value; updateExportReadout(); });
+    on("#numMargin","input",e=>{ S.page.marginMM=Math.max(0,Math.min(40,parseInt(e.target.value)||0)); renderExportPreview(); updateExportReadout(); });
+    on("#cAntialias","change",e=>{ S.page.antialias=e.target.checked; updateExportReadout(); });
+    on("#exportBtn","click",doExport);
+    body.querySelector("#selSize").value=S.page.size;
+    body.querySelector("#selOrient").value=S.page.orient;
+    body.querySelector("#selDpi").value=String(S.page.dpi);
+    body.querySelector("#selFormat").value=S.page.format;
+    const aa=body.querySelector("#cAntialias"); if(aa) aa.checked=S.page.antialias;
+    body.querySelector("#fMargin").style.visibility=(S.page.size==="fit")?"hidden":"visible";
+  }
+}
+
+function act(a){
+  if(a==="rotL"){ S.rotation=(S.rotation+270)%360; resetQuad(false); render(); }
+  else if(a==="rotR"){ S.rotation=(S.rotation+90)%360; resetQuad(false); render(); }
+  else if(a==="rot180"){ S.rotation=(S.rotation+180)%360; resetQuad(false); render(); }
+  else if(a==="autodetect"){ resetQuad(true); render(); toast("Detected page edges — adjust if needed"); }
+  else if(a==="resetcorners"){ resetQuad(false); render(); }
+  else if(a==="cropFull"){ warped(); S.crop={x:0,y:0,w:S.warpW,h:S.warpH}; invalidate("cropped"); render(); }
+  else if(a==="cropExpand"){ const d=Math.round(Math.max(S.warpW,S.warpH)*0.03); S.crop={x:S.crop.x-d,y:S.crop.y-d,w:S.crop.w+2*d,h:S.crop.h+2*d}; invalidate("cropped"); render(); }
+  else if(a==="cropShrink"){ const d=Math.round(Math.max(S.warpW,S.warpH)*0.03); S.crop={x:S.crop.x+d,y:S.crop.y+d,w:Math.max(20,S.crop.w-2*d),h:Math.max(20,S.crop.h-2*d)}; invalidate("cropped"); render(); }
+  else if(a==="sampleFill"){
+    const w=warped(); const r=new cv.Rect(Math.floor(w.cols*0.35),Math.floor(w.rows*0.35),Math.max(1,Math.floor(w.cols*0.3)),Math.max(1,Math.floor(w.rows*0.3)));
+    const roi=w.roi(r); const m=cv.mean(roi); roi.delete();
+    S.fill=[Math.round(m[0]),Math.round(m[1]),Math.round(m[2])];
+    const fc=el.pBody.querySelector("#fillColor"); if(fc) fc.value=hex(S.fill);
+    invalidate("persp"); render(); toast("Background sampled from page");
+  }
+}
+
+/* =================== render =================== */
+function renderPreviewOnly(){ if(S.step===4) showMat(colored()); else if(S.step===1) showMat(oriented()); else if(S.step===5) renderExportPreview(); }
+function render(){
+  if(!S.work) return;
+  el.empty.style.display="none"; el.stageWrap.style.display="block";
+  if(S.step===1){ showMat(oriented()); clearOverlay(); el.badge.textContent=oriented().cols+" × "+oriented().rows+" px"; }
+  else if(S.step===2){
+    if(S.showWarpResult){ const w=warped(); showMat(w); clearOverlay(); el.badge.textContent=(S.curlMode?"curl-corrected · ":"flattened · ")+w.cols+" × "+w.rows+" px"; }
+    else if(S.curlMode){ showMat(persp()); drawOverlay("edges"); el.badge.textContent="drag the edge handles onto the curved edges"; }
+    else { const stage=buildQuadStage(); showMat(stage); stage.delete(); drawOverlay("quad"); el.badge.textContent="drag the 4 corners (can go past the photo edge)"; }
+  }
+  else if(S.step===3){ const stage=buildCropStage(); showMat(stage); stage.delete(); drawOverlay("crop"); el.badge.textContent=Math.round(S.crop.w)+" × "+Math.round(S.crop.h)+" px"; }
+  else if(S.step===4){ const c=colored(); showMat(c); clearOverlay(); el.badge.textContent=c.cols+" × "+c.rows+" px"; }
+  else if(S.step===5){ renderExportPreview(); clearOverlay(); }
+  el.badge.style.display="block";
+  updateStepUI();
+}
+function pageDims(){
+  const c=colored();
+  if(S.page.size==="fit") return [c.cols/S.page.dpi*25.4, c.rows/S.page.dpi*25.4];
+  let [pw,ph]=PAGE_SIZES[S.page.size];
+  const landscape=S.page.orient==="landscape"||(S.page.orient==="auto"&&c.cols>c.rows);
+  if(landscape){ const t=pw; pw=ph; ph=t; }
+  return [pw,ph];
+}
+function renderExportPreview(){
+  const content=document.createElement("canvas"); cv.imshow(content,colored());
+  const [pwmm,phmm]=pageDims(); const longest=1200, scale=longest/Math.max(pwmm,phmm);
+  const PW=Math.round(pwmm*scale), PH=Math.round(phmm*scale);
+  const page=document.createElement("canvas"); page.width=PW; page.height=PH;
+  const ctx=page.getContext("2d"); ctx.fillStyle="rgb("+S.fill[0]+","+S.fill[1]+","+S.fill[2]+")"; ctx.fillRect(0,0,PW,PH);
+  if(S.page.size==="fit"){ ctx.drawImage(content,0,0,PW,PH); }
+  else { const mpx=(S.page.marginMM/pwmm)*PW, aw=PW-2*mpx, ah=PH-2*mpx, sc=Math.min(aw/content.width,ah/content.height), dw=content.width*sc, dh=content.height*sc; ctx.imageSmoothingQuality="high"; ctx.drawImage(content,(PW-dw)/2,(PH-dh)/2,dw,dh); }
+  setStageSize(PW,PH); el.disp.getContext("2d").drawImage(page,0,0); el.badge.style.display="block"; el.badge.textContent="export preview";
+}
+function updateExportReadout(){
+  const node=el.pBody.querySelector("#exportReadout"); if(!node) return;
+  const [pwmm,phmm]=pageDims(); let outW,outH,label;
+  if(S.page.size==="fit"){ const c=colored(); outW=Math.round(c.cols/S.workScale); outH=Math.round(c.rows/S.workScale); label="Image size"; }
+  else { outW=Math.round(pwmm*S.page.dpi/25.4); outH=Math.round(phmm*S.page.dpi/25.4); label=S.page.size+(((S.page.orient==="landscape")||(S.page.orient==="auto"&&pwmm>phmm))?" · landscape":" · portrait"); }
+  node.innerHTML="<span class='lbl'>Output</span> &nbsp;<b>"+label+"</b><br><span class='lbl'>Pixels</span> &nbsp;<b>"+outW+" × "+outH+"</b><br><span class='lbl'>Format</span> &nbsp;<b>"+S.page.format.toUpperCase()+"</b> &nbsp;·&nbsp; <span class='lbl'>"+S.page.dpi+" dpi</span>";
+}
+function updateStepUI(){
+  const m=STEP_META[S.step]; el.pK.textContent=m.k; el.pTitle.textContent=m.t; el.pDesc.textContent=m.d;
+  el.stepper.querySelectorAll(".step").forEach(b=>{ const n=parseInt(b.dataset.step); b.classList.toggle("active",n===S.step); b.classList.toggle("done",n<S.step); });
+  el.backBtn.disabled=(S.step===1); el.nextBtn.textContent=(S.step===5)?"Done":"Next"; el.nextBtn.disabled=(S.step===5);
+}
+function gotoStep(n){ if(!S.work||n<1||n>5) return; S.step=n; el.pBody.innerHTML=controlsFor(n); bindControls(n); render(); if(n===5) updateExportReadout(); }
+
+/* =================== export =================== */
+// adaptive blockSize must scale with the resolution it's applied at (tuned on the work-res preview)
+function blockScaleFor(widthPx){ return odd(S.color.blockSize * widthPx / Math.max(1,S.crop.w)); }
+function thresholdGray(g, bs){
+  const c=S.color, out=new cv.Mat();
+  if(c.mode==="bw_adaptive") cv.adaptiveThreshold(g,out,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,odd(bs),c.C);
+  else if(c.autoThreshold) cv.threshold(g,out,0,255,cv.THRESH_BINARY|cv.THRESH_OTSU);
+  else cv.threshold(g,out,c.threshold,255,cv.THRESH_BINARY);
+  return out;
+}
+// render native-res content into a clean (dw x dh) tile with proper resampling
+function renderContent(src, dw, dh){
+  const c=S.color, upscale=(dw>src.cols), interp=upscale?cv.INTER_CUBIC:cv.INTER_AREA, sz=new cv.Size(dw,dh);
+  if(c.mode==="original"){
+    const rgb=new cv.Mat(); cv.cvtColor(src,rgb,cv.COLOR_RGBA2RGB);
+    const adj=new cv.Mat(); rgb.convertTo(adj,-1,c.contrast,c.brightness); rgb.delete();
+    const rs=new cv.Mat(); cv.resize(adj,rs,sz,0,0,interp); adj.delete();
+    const out=new cv.Mat(); cv.cvtColor(rs,out,cv.COLOR_RGB2RGBA); rs.delete(); return out;
+  }
+  const gray=new cv.Mat(); cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
+  const adj=new cv.Mat(); gray.convertTo(adj,-1,c.contrast,c.brightness); gray.delete();
+  if(c.mode==="grayscale"){
+    const rs=new cv.Mat(); cv.resize(adj,rs,sz,0,0,interp); adj.delete();
+    const out=new cv.Mat(); cv.cvtColor(rs,out,cv.COLOR_GRAY2RGBA); rs.delete(); return out;
+  }
+  // black & white
+  let small;
+  if(S.page.antialias && !upscale){
+    // threshold at native res, then area-average down -> smooth, anti-aliased edges (no jaggies on staff lines)
+    const bw=thresholdGray(adj, blockScaleFor(adj.cols)); adj.delete();
+    small=new cv.Mat(); cv.resize(bw,small,sz,0,0,cv.INTER_AREA); bw.delete();
+  } else {
+    // crisp 1-bit at output resolution
+    const rs=new cv.Mat(); cv.resize(adj,rs,sz,0,0,interp); adj.delete();
+    small=thresholdGray(rs, blockScaleFor(dw)); rs.delete();
+  }
+  const out=new cv.Mat(); cv.cvtColor(small,out,cv.COLOR_GRAY2RGBA); small.delete(); return out;
+}
+// build the final output Mat (page-sized or fit-to-image) at full quality
+function exportFinalMat(){
+  const inv=1/S.workScale;
+  const orientedF=orientMat(S.srcFull,S.rotation,S.fineAngle,S.fill);
+  const pf=warpMat(orientedF,S.quad.map(p=>({x:p.x*inv,y:p.y*inv})),S.fill); orientedF.delete();
+  let rect=pf.mat;
+  if(curlActive()){
+    const fx=pf.w/Math.max(1,S.warpW), fy=pf.h/Math.max(1,S.warpH);
+    const sp=p=>({x:p.x*fx,y:p.y*fy});
+    rect=coonsRemap(pf.mat,{top:sp(S.edges.top),bottom:sp(S.edges.bottom),left:sp(S.edges.left),right:sp(S.edges.right)});
+    pf.mat.delete();
+  }
+  const cropF={x:S.crop.x*inv,y:S.crop.y*inv,w:S.crop.w*inv,h:S.crop.h*inv};
+  const geom=cropMat(rect,cropF,S.fill); rect.delete();
+  if(S.page.size==="fit"){
+    const content=renderContent(geom,geom.cols,geom.rows); geom.delete();
+    return {mat:content,wmm:content.cols/S.page.dpi*25.4,hmm:content.rows/S.page.dpi*25.4};
+  }
+  let [pw,ph]=PAGE_SIZES[S.page.size];
+  const landscape=S.page.orient==="landscape"||(S.page.orient==="auto"&&geom.cols>geom.rows);
+  if(landscape){ const t=pw; pw=ph; ph=t; }
+  const PW=Math.round(pw*S.page.dpi/25.4), PH=Math.round(ph*S.page.dpi/25.4);
+  const mpx=Math.round(S.page.marginMM*S.page.dpi/25.4), aw=Math.max(1,PW-2*mpx), ah=Math.max(1,PH-2*mpx);
+  const sc=Math.min(aw/geom.cols,ah/geom.rows);
+  const dw=Math.max(1,Math.round(geom.cols*sc)), dh=Math.max(1,Math.round(geom.rows*sc));
+  const content=renderContent(geom,dw,dh); geom.delete();
+  const page=new cv.Mat(PH,PW,content.type(),new cv.Scalar(S.fill[0],S.fill[1],S.fill[2],255));
+  const roi=page.roi(new cv.Rect(Math.round((PW-dw)/2),Math.round((PH-dh)/2),dw,dh)); content.copyTo(roi); roi.delete(); content.delete();
+  return {mat:page,wmm:pw,hmm:ph};
+}
+function downloadBlob(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000); }
+function baseName(){ const n=S.fileName||"page"; const dot=n.lastIndexOf("."); return (dot>0?n.slice(0,dot):n)+"_clean"; }
+function doExport(){
+  if(!S.work) return;
+  showLoading("Exporting page…","rendering at full resolution");
+  setTimeout(()=>{
+    let r=null;
+    try{
+      r=exportFinalMat();
+      const canvas=document.createElement("canvas"); cv.imshow(canvas,r.mat); r.mat.delete(); r.mat=null;
+      if(S.page.format==="pdf"){
+        if(!(window.jspdf&&window.jspdf.jsPDF)){ hideLoading(); toast("PDF library didn't load — try PNG, or reconnect and reload.","err"); return; }
+        const {jsPDF}=window.jspdf;
+        const doc=new jsPDF({orientation:(r.wmm>r.hmm?"landscape":"portrait"),unit:"mm",format:[r.wmm,r.hmm]});
+        doc.addImage(canvas.toDataURL("image/png"),"PNG",0,0,r.wmm,r.hmm,undefined,"FAST");
+        doc.save(baseName()+".pdf"); hideLoading(); toast("Exported "+baseName()+".pdf","ok");
+      } else {
+        const type=S.page.format==="jpg"?"image/jpeg":"image/png";
+        canvas.toBlob(b=>{ if(!b){ hideLoading(); toast("Export failed.","err"); return; } downloadBlob(b,baseName()+"."+S.page.format); hideLoading(); toast("Exported "+baseName()+"."+S.page.format,"ok"); }, type, 0.95);
+      }
+    }catch(e){ console.error(e); if(r&&r.mat){ try{r.mat.delete();}catch(_){ } } hideLoading(); toast("Export error: "+(e.message||e),"err"); }
+  },40);
+}
+
+/* =================== load / reset =================== */
+function freeImage(){ for(const k in cache){ if(cache[k]){ cache[k].delete(); cache[k]=null; } } if(S.work){ S.work.delete(); S.work=null; } if(S.srcFull){ S.srcFull.delete(); S.srcFull=null; } }
+function enableUI(on){
+  el.stepper.querySelectorAll(".step").forEach(b=>b.disabled=!on);
+  el.resetBtn.disabled=!on; el.backBtn.disabled=!on||S.step===1; el.nextBtn.disabled=!on||S.step===5;
+}
+function reset(){
+  freeImage();
+  Object.assign(S,{fileName:"",rotation:0,fineAngle:0,quad:null,crop:null,fill:[255,255,255],curlMode:false,edges:null,quadOff:{x:0,y:0},showWarpResult:false,step:1});
+  S.color={mode:"bw_adaptive",brightness:0,contrast:1.0,threshold:128,autoThreshold:true,blockSize:31,C:12};
+  S.page={size:"A4",orient:"auto",dpi:300,format:"pdf",marginMM:8,antialias:true};
+  el.stageWrap.style.display="none"; el.empty.style.display="block";
+  el.stageWrap.style.width=""; el.stageWrap.style.height=""; el.badge.style.display="none";
+  el.fileMeta.textContent="No image loaded"; el.pBody.innerHTML="";
+  el.pK.textContent="STEP 1 / 5"; el.pTitle.textContent="Orient"; el.pDesc.textContent="Open an image to begin.";
+  enableUI(false);
+}
+function loadImage(file){
+  if(!file||!/^image\//.test(file.type)){ toast("That file isn't an image. Choose a JPG or PNG.","err"); return; }
+  showLoading("Reading image…","");
+  const img=new Image();
+  img.onload=()=>{
+    try{
+      freeImage();
+      const tmp=document.createElement("canvas"); tmp.width=img.naturalWidth; tmp.height=img.naturalHeight;
+      tmp.getContext("2d").drawImage(img,0,0);
+      S.srcFull=cv.imread(tmp);
+      const long=Math.max(S.srcFull.cols,S.srcFull.rows);
+      S.workScale=Math.min(1,WORK_MAX/long);
+      S.work=new cv.Mat();
+      const W=Math.max(1,Math.round(S.srcFull.cols*S.workScale)), H=Math.max(1,Math.round(S.srcFull.rows*S.workScale));
+      cv.resize(S.srcFull,S.work,new cv.Size(W,H),0,0,cv.INTER_AREA);
+      S.fileName=file.name; S.rotation=0; S.fineAngle=0; S.crop=null; S.curlMode=false; S.showWarpResult=false; S.fill=[255,255,255];
+      invalidate("oriented"); resetQuad(true);
+      el.fileMeta.innerHTML="<b>"+file.name+"</b> · "+S.srcFull.cols+"×"+S.srcFull.rows;
+      enableUI(true); gotoStep(1); hideLoading();
+      toast("Loaded — corners auto-detected. Check them in step 2.","ok");
+    }catch(e){ console.error(e); hideLoading(); toast("Couldn't read that image: "+(e.message||e),"err"); }
+    URL.revokeObjectURL(img.src);
+  };
+  img.onerror=()=>{ hideLoading(); toast("Couldn't open that image.","err"); };
+  img.src=URL.createObjectURL(file);
+}
+
+/* =================== events + boot =================== */
+el.openBtn.addEventListener("click",()=>el.fileInput.click());
+el.empty.addEventListener("click",()=>{ if(!el.openBtn.disabled) el.fileInput.click(); });
+el.fileInput.addEventListener("change",e=>{ if(e.target.files&&e.target.files[0]) loadImage(e.target.files[0]); el.fileInput.value=""; });
+el.resetBtn.addEventListener("click",reset);
+el.backBtn.addEventListener("click",()=>gotoStep(S.step-1));
+el.nextBtn.addEventListener("click",()=>gotoStep(S.step+1));
+el.stepper.querySelectorAll(".step").forEach(b=>b.addEventListener("click",()=>{ if(!b.disabled) gotoStep(parseInt(b.dataset.step)); }));
+["dragenter","dragover"].forEach(ev=>el.bed.addEventListener(ev,e=>{ e.preventDefault(); if(!el.openBtn.disabled) el.empty.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev=>el.bed.addEventListener(ev,e=>{ e.preventDefault(); el.empty.classList.remove("drag"); }));
+el.bed.addEventListener("drop",e=>{ if(el.openBtn.disabled) return; const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(f) loadImage(f); });
+
+(async function boot(){
+  enableUI(false); el.openBtn.disabled=true;
+  showLoading("Loading image engine…","first run only — about 8 MB");
+  try{ await initOpenCv(); el.openBtn.disabled=false; hideLoading(); toast("Ready — open a page photo to start"); }
+  catch(e){ console.error(e); el.loadMsg.textContent="Couldn't load the image engine."; el.loadSub.textContent="Check your connection and reload. (Offline use: place opencv.js beside this file.)"; }
+})();
+</script>
+</body>
+</html>
