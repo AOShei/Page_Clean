@@ -4,11 +4,10 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/badge/License-GPLv3-364fc7.svg"></a>
-  <a href="https://github.com/AOShei/Page_Clean/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/AOShei/Page_Clean?color=f08c00"></a>
-  <a href="https://github.com/AOShei/Page_Clean/commits"><img alt="Last commit" src="https://img.shields.io/github/last-commit/AOShei/Page_Clean?color=5c77f0"></a>
-  <a href="https://github.com/AOShei/Page_Clean/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/AOShei/Page_Clean?color=2f9e44"></a>
+  <img alt="Single HTML file" src="https://img.shields.io/badge/build-single%20HTML%20file-2f9e44.svg">
   <img alt="Runs 100% client-side" src="https://img.shields.io/badge/runs-100%25%20client--side-f08c00.svg">
-  <img alt="Powered by OpenCV.js" src="https://img.shields.io/badge/engine-OpenCV.js-5c77f0.svg">
+  <img alt="No upload, no telemetry" src="https://img.shields.io/badge/privacy-no%20upload-5c77f0.svg">
+  <img alt="Powered by OpenCV.js" src="https://img.shields.io/badge/engine-OpenCV.js-364fc7.svg">
 </p>
 
 <p align="center">

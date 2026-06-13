@@ -11,6 +11,19 @@
   First load fetches OpenCV (image engine) + jsPDF (PDF export) from a CDN.
   For fully offline use, put opencv.js next to this file and set OPENCV_URLS = ["opencv.js"].
 -->
+<meta name="description" content="Turn sloppy phone photos of document pages into clean, flat, scanner-quality output — rotate, de-skew, crop, threshold, and export to PDF, PNG, or JPG. One HTML file, no install, 100% client-side." />
+<meta name="theme-color" content="#364fc7" />
+<meta name="color-scheme" content="light" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23364fc7'/><path d='M11 6.5h6.5L23 12v13.5a1 1 0 0 1-1 1H11a1 1 0 0 1-1-1v-18a1 1 0 0 1 1-1z' fill='%23fff'/><path d='M17.5 6.5V12H23' fill='none' stroke='%23364fc7' stroke-width='1.4'/><path d='M13 16h7M13 19h7M13 22h4' stroke='%23364fc7' stroke-width='1.5' stroke-linecap='round'/></svg>" />
+<!-- Social preview (used when the hosted page is shared; ignored when opened from a local file) -->
+<meta property="og:title" content="PageClean — scanner-quality pages from phone photos" />
+<meta property="og:description" content="Rotate, de-skew, crop, threshold, and export phone photos of documents to PDF/PNG/JPG. One HTML file, runs 100% in your browser." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://raw.githubusercontent.com/AOShei/Page_Clean/main/assets/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://raw.githubusercontent.com/AOShei/Page_Clean/main/assets/og-image.png" />
 <style>
   :root{
     --surface-0:#ffffff; --surface-1:#f3f5f7; --surface-2:#e9ecf1;
@@ -629,9 +642,7 @@ function controlsFor(step){
     <div class="group ${(S.color.mode==="bw_adaptive"||S.color.mode==="bw_threshold")?"":"hide"}" id="gAntialias" style="margin-top:16px">
       <label class="check"><input type="checkbox" id="cAntialias" ${S.page.antialias?"checked":""}> Smooth edges (anti-alias)</label>
       <div class="note">Thresholds at full resolution, then down-samples with area averaging — removes the jagged staircasing on staff lines and thin strokes. Turn off for a hard 1-bit result. For sheet music, keep this on and use a high resolution or <b>Fit to image</b>.</div></div>
-    <div class="group" style="margin-top:18px"><div class="readout" id="exportReadout"></div></div>
-    <button class="btn primary" id="exportBtn" style="width:100%;justify-content:center;padding:11px">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg> Export page</button>`;
+    <div class="group" style="margin-top:18px"><div class="readout" id="exportReadout"></div></div>`;
   return "";
 }
 
@@ -666,7 +677,6 @@ function bindControls(step){
     on("#selFormat","change",e=>{ S.page.format=e.target.value; updateExportReadout(); });
     on("#numMargin","input",e=>{ S.page.marginMM=Math.max(0,Math.min(40,parseInt(e.target.value)||0)); renderExportPreview(); updateExportReadout(); });
     on("#cAntialias","change",e=>{ S.page.antialias=e.target.checked; updateExportReadout(); });
-    on("#exportBtn","click",doExport);
     body.querySelector("#selSize").value=S.page.size;
     body.querySelector("#selOrient").value=S.page.orient;
     body.querySelector("#selDpi").value=String(S.page.dpi);
@@ -739,7 +749,8 @@ function updateExportReadout(){
 function updateStepUI(){
   const m=STEP_META[S.step]; el.pK.textContent=m.k; el.pTitle.textContent=m.t; el.pDesc.textContent=m.d;
   el.stepper.querySelectorAll(".step").forEach(b=>{ const n=parseInt(b.dataset.step); b.classList.toggle("active",n===S.step); b.classList.toggle("done",n<S.step); });
-  el.backBtn.disabled=(S.step===1); el.nextBtn.textContent=(S.step===5)?"Done":"Next"; el.nextBtn.disabled=(S.step===5);
+  el.backBtn.disabled=(S.step===1); el.nextBtn.disabled=false;
+  el.nextBtn.innerHTML=(S.step===5)?"<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M12 3v12m0 0l-4-4m4 4l4-4M5 21h14'/></svg> Export":"Next";
 }
 function gotoStep(n){ if(!S.work||n<1||n>5) return; S.step=n; el.pBody.innerHTML=controlsFor(n); bindControls(n); render(); if(n===5) updateExportReadout(); }
 
@@ -839,7 +850,7 @@ function doExport(){
 function freeImage(){ for(const k in cache){ if(cache[k]){ cache[k].delete(); cache[k]=null; } } if(S.work){ S.work.delete(); S.work=null; } if(S.srcFull){ S.srcFull.delete(); S.srcFull=null; } }
 function enableUI(on){
   el.stepper.querySelectorAll(".step").forEach(b=>b.disabled=!on);
-  el.resetBtn.disabled=!on; el.backBtn.disabled=!on||S.step===1; el.nextBtn.disabled=!on||S.step===5;
+  el.resetBtn.disabled=!on; el.backBtn.disabled=!on||S.step===1; el.nextBtn.disabled=!on;
 }
 function reset(){
   freeImage();
@@ -885,7 +896,7 @@ el.empty.addEventListener("click",()=>{ if(!el.openBtn.disabled) el.fileInput.cl
 el.fileInput.addEventListener("change",e=>{ if(e.target.files&&e.target.files[0]) loadImage(e.target.files[0]); el.fileInput.value=""; });
 el.resetBtn.addEventListener("click",reset);
 el.backBtn.addEventListener("click",()=>gotoStep(S.step-1));
-el.nextBtn.addEventListener("click",()=>gotoStep(S.step+1));
+el.nextBtn.addEventListener("click",()=>{ if(S.step===5) doExport(); else gotoStep(S.step+1); });
 el.stepper.querySelectorAll(".step").forEach(b=>b.addEventListener("click",()=>{ if(!b.disabled) gotoStep(parseInt(b.dataset.step)); }));
 ["dragenter","dragover"].forEach(ev=>el.bed.addEventListener(ev,e=>{ e.preventDefault(); if(!el.openBtn.disabled) el.empty.classList.add("drag"); }));
 ["dragleave","drop"].forEach(ev=>el.bed.addEventListener(ev,e=>{ e.preventDefault(); el.empty.classList.remove("drag"); }));
