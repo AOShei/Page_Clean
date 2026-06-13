@@ -3,9 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-364fc7.svg"></a>
-  <img alt="Single file" src="https://img.shields.io/badge/build-none-2f9e44.svg">
-  <img alt="Runs in the browser" src="https://img.shields.io/badge/runs-100%25%20client--side-f08c00.svg">
+  <a href="LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/badge/License-GPLv3-364fc7.svg"></a>
+  <a href="https://github.com/AOShei/Page_Clean/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/AOShei/Page_Clean?color=f08c00"></a>
+  <a href="https://github.com/AOShei/Page_Clean/commits"><img alt="Last commit" src="https://img.shields.io/github/last-commit/AOShei/Page_Clean?color=5c77f0"></a>
+  <a href="https://github.com/AOShei/Page_Clean/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/AOShei/Page_Clean?color=2f9e44"></a>
+  <img alt="Runs 100% client-side" src="https://img.shields.io/badge/runs-100%25%20client--side-f08c00.svg">
   <img alt="Powered by OpenCV.js" src="https://img.shields.io/badge/engine-OpenCV.js-5c77f0.svg">
 </p>
 
@@ -43,16 +45,16 @@ Phone photos of paper are quick to take but ugly to use: they're tilted, shot at
 
 ## Quick start
 
-**Option A — just open it.** Download `page-clean.html` and double-click it. That's the whole app.
+**Option A — just open it.** Download `index.html` and double-click it. That's the whole app.
 
-**Option B — host it (e.g. GitHub Pages).** Put the repository on GitHub, enable **Settings → Pages**, and serve from the repo root. Renaming `page-clean.html` to `index.html` makes the Pages URL load it directly.
+**Option B — host it (e.g. GitHub Pages).** Put the repository on GitHub and enable **Settings → Pages**, serving from the repo root. Because the app is named `index.html`, the Pages URL loads it directly.
 
 **Option C — run a local server** (optional, only if your browser restricts file access):
 
 ```bash
 # from the repo folder
 python3 -m http.server 8000
-# then visit http://localhost:8000/page-clean.html
+# then visit http://localhost:8000/
 ```
 
 > The first load fetches the OpenCV image engine (~8 MB) and the jsPDF library from a CDN, then the browser caches them. See **Offline use** below to bundle them.
@@ -68,8 +70,8 @@ python3 -m http.server 8000
 
 PageClean works without a network connection once the engine is available locally:
 
-1. Download `opencv.js` and place it next to `page-clean.html`.
-2. Open `page-clean.html` and set the engine source near the top of the file:
+1. Download `opencv.js` and place it next to `index.html`.
+2. Open `index.html` and set the engine source near the top of the file:
    ```js
    const OPENCV_URLS = ["opencv.js"]; // local copy, no CDN needed
    ```
@@ -91,7 +93,7 @@ Works in current versions of Chrome, Edge, Firefox, and Safari (desktop and mobi
 
 ## Contributing
 
-Issues and pull requests are welcome. Because the app is a single file, hacking on it is simple: edit `page-clean.html` and refresh the browser — there's no build step or toolchain. Bug reports are most useful with a sample photo (or a description of one) and the step where things went wrong.
+Issues and pull requests are welcome. Because the app is a single file, hacking on it is simple: edit `index.html` and refresh the browser — there's no build step or toolchain. Bug reports are most useful with a sample photo (or a description of one) and the step where things went wrong.
 
 ## License
 

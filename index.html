@@ -251,7 +251,7 @@ let cv = null;
 const S = {
   fileName:"", srcFull:null, work:null, workScale:1,
   rotation:0, fineAngle:0,
-  quad:null, crop:null, stageOrigin:{x:0,y:0}, quadOff:{x:0,y:0},
+  quad:null, crop:null, stageOrigin:{x:0,y:0}, quadOff:{x:0,y:0}, edgeOff:{x:0,y:0},
   curlMode:false, edges:null,
   fill:[255,255,255], showWarpResult:false, warpW:0, warpH:0,
   color:{ mode:"bw_adaptive", brightness:0, contrast:1.0, threshold:128, autoThreshold:true, blockSize:31, C:12 },
@@ -446,15 +446,16 @@ function drawOverlay(type){
     ctx.beginPath(); ctx.moveTo(q[0].x+off.x,q[0].y+off.y); for(let i=1;i<4;i++) ctx.lineTo(q[i].x+off.x,q[i].y+off.y); ctx.closePath(); ctx.fill(); ctx.stroke();
     for(const p of q) drawHandle(ctx,p.x+off.x,p.y+off.y,R);
   } else if(type==="edges"){
-    const W=S.warpW,H=S.warpH,e=S.edges;
+    const off=S.edgeOff, W=S.warpW,H=S.warpH,e=S.edges;
     const C00={x:0,y:0},C10={x:W,y:0},C11={x:W,y:H},C01={x:0,y:H};
     const ctrl=(A,B,M)=>({x:2*M.x-(A.x+B.x)/2,y:2*M.y-(A.y+B.y)/2});
     const bez=(A,P,B,t)=>{const u=1-t;return{x:u*u*A.x+2*u*t*P.x+t*t*B.x,y:u*u*A.y+2*u*t*P.y+t*t*B.y};};
-    ctx.save(); ctx.setLineDash([6*s,5*s]); ctx.lineWidth=1.2*s; ctx.strokeStyle="rgba(255,255,255,0.28)"; ctx.strokeRect(0,0,W,H); ctx.restore();
+    const O=p=>({x:p.x+off.x,y:p.y+off.y});
+    ctx.save(); ctx.setLineDash([6*s,5*s]); ctx.lineWidth=1.5*s; ctx.strokeStyle="rgba(255,255,255,0.35)"; ctx.strokeRect(off.x,off.y,W,H); ctx.restore();
     ctx.lineWidth=LW; ctx.strokeStyle=css("--accent");
-    const edge=(A,B,M)=>{ const P=ctrl(A,B,M); ctx.beginPath(); for(let t=0;t<=1.0001;t+=1/48){ const pt=bez(A,P,B,t); if(t===0) ctx.moveTo(pt.x,pt.y); else ctx.lineTo(pt.x,pt.y);} ctx.stroke(); };
+    const edge=(A,B,M)=>{ const P=ctrl(A,B,M); ctx.beginPath(); for(let t=0;t<=1.0001;t+=1/48){ const q=O(bez(A,P,B,t)); if(t===0) ctx.moveTo(q.x,q.y); else ctx.lineTo(q.x,q.y);} ctx.stroke(); };
     edge(C00,C10,e.top); edge(C01,C11,e.bottom); edge(C00,C01,e.left); edge(C10,C11,e.right);
-    for(const k of ["top","bottom","left","right"]) drawHandle(ctx,e[k].x,e[k].y,R);
+    for(const k of ["top","bottom","left","right"]){ const q=O(e[k]); drawHandle(ctx,q.x,q.y,R); }
   } else if(type==="crop"){
     const o=S.stageOrigin, r={x:S.crop.x-o.x,y:S.crop.y-o.y,w:S.crop.w,h:S.crop.h};
     ctx.fillStyle="rgba(15,17,22,0.45)"; ctx.fillRect(0,0,el.ovl.width,el.ovl.height); ctx.clearRect(r.x,r.y,r.w,r.h);
@@ -470,6 +471,15 @@ function buildQuadStage(){
   const W=m.cols+2*pad, H=m.rows+2*pad;
   const stage=new cv.Mat(H,W,m.type(),new cv.Scalar(52,56,64,255));
   const dR=stage.roi(new cv.Rect(pad,pad,m.cols,m.rows)); m.copyTo(dR); dR.delete();
+  return stage;
+}
+// curl-edit stage: rectified page inset inside a neutral margin, so edge handles can be dragged past the page edge
+function buildEdgeStage(){
+  const p=persp(); const pad=Math.round(0.22*Math.max(p.cols,p.rows));
+  S.edgeOff={x:pad,y:pad}; S.edgeImg={w:p.cols,h:p.rows};
+  const W=p.cols+2*pad, H=p.rows+2*pad;
+  const stage=new cv.Mat(H,W,p.type(),new cv.Scalar(52,56,64,255));
+  const dR=stage.roi(new cv.Rect(pad,pad,p.cols,p.rows)); p.copyTo(dR); dR.delete();
   return stage;
 }
 function buildCropStage(){
@@ -501,10 +511,10 @@ function startQuadDrag(p){
     }, commit(){ S.crop=null; S.edges=null; invalidate("persp"); } });
 }
 function startEdgeDrag(p){
-  const s=ovlScale(), R=18*s, W=S.warpW, H=S.warpH;
-  let key=null,bd=R; for(const k of ["top","bottom","left","right"]){ const d=dist(S.edges[k],p); if(d<bd){bd=d;key=k;} }
+  const s=ovlScale(), R=18*s, off=S.edgeOff, W=S.warpW, H=S.warpH, pad=off.x, ip={x:p.x-off.x,y:p.y-off.y};
+  let key=null,bd=R; for(const k of ["top","bottom","left","right"]){ const d=dist(S.edges[k],ip); if(d<bd){bd=d;key=k;} }
   if(!key) return;
-  beginDrag({ move(pt){ S.edges[key]={x:Math.max(0,Math.min(W,pt.x)),y:Math.max(0,Math.min(H,pt.y))}; drawOverlay("edges"); },
+  beginDrag({ move(pt){ S.edges[key]={x:Math.max(-pad,Math.min(W+pad,pt.x-off.x)),y:Math.max(-pad,Math.min(H+pad,pt.y-off.y))}; drawOverlay("edges"); },
               commit(){ invalidate("warped"); if(S.showWarpResult) render(); } });
 }
 function startCropDrag(p){
@@ -555,7 +565,7 @@ function controlsFor(step){
         <button class="chip" data-act="resetcorners">Reset corners</button>
       </div></div>
     <div class="group"><label class="check"><input type="checkbox" id="cCurl" ${S.curlMode?"checked":""}> Flatten page curl <span style="color:var(--ink-3);font-weight:500">(curved edges)</span></label>
-      <div class="note">Off: drag the <b>four corners</b> (they may sit past the photo edge). On: the page is squared up first, then drag the <b>four edge handles</b> to trace bowed edges — useful for book pages that roll near the binding.</div></div>
+      <div class="note">Off: drag the <b>four corners</b> (they may sit past the photo edge). On: the page is squared up first, then drag the <b>four edge handles</b> to trace bowed edges — they can extend <b>past the image edge</b>, so a top line that curves upward can be followed. Useful for book pages that roll near the binding.</div></div>
     <div class="group"><label class="check"><input type="checkbox" id="cWarpPreview" ${S.showWarpResult?"checked":""}> Show flattened result</label>
       <div class="note">Toggle to confirm the page looks flat and square before continuing.</div></div>`;
   if(step===3) return `
@@ -692,7 +702,7 @@ function render(){
   if(S.step===1){ showMat(oriented()); clearOverlay(); el.badge.textContent=oriented().cols+" × "+oriented().rows+" px"; }
   else if(S.step===2){
     if(S.showWarpResult){ const w=warped(); showMat(w); clearOverlay(); el.badge.textContent=(S.curlMode?"curl-corrected · ":"flattened · ")+w.cols+" × "+w.rows+" px"; }
-    else if(S.curlMode){ showMat(persp()); drawOverlay("edges"); el.badge.textContent="drag the edge handles onto the curved edges"; }
+    else if(S.curlMode){ const stage=buildEdgeStage(); showMat(stage); stage.delete(); drawOverlay("edges"); el.badge.textContent="drag the edge handles (can go past the image edge)"; }
     else { const stage=buildQuadStage(); showMat(stage); stage.delete(); drawOverlay("quad"); el.badge.textContent="drag the 4 corners (can go past the photo edge)"; }
   }
   else if(S.step===3){ const stage=buildCropStage(); showMat(stage); stage.delete(); drawOverlay("crop"); el.badge.textContent=Math.round(S.crop.w)+" × "+Math.round(S.crop.h)+" px"; }
@@ -833,7 +843,7 @@ function enableUI(on){
 }
 function reset(){
   freeImage();
-  Object.assign(S,{fileName:"",rotation:0,fineAngle:0,quad:null,crop:null,fill:[255,255,255],curlMode:false,edges:null,quadOff:{x:0,y:0},showWarpResult:false,step:1});
+  Object.assign(S,{fileName:"",rotation:0,fineAngle:0,quad:null,crop:null,fill:[255,255,255],curlMode:false,edges:null,quadOff:{x:0,y:0},edgeOff:{x:0,y:0},showWarpResult:false,step:1});
   S.color={mode:"bw_adaptive",brightness:0,contrast:1.0,threshold:128,autoThreshold:true,blockSize:31,C:12};
   S.page={size:"A4",orient:"auto",dpi:300,format:"pdf",marginMM:8,antialias:true};
   el.stageWrap.style.display="none"; el.empty.style.display="block";

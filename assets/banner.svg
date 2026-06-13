@@ -87,27 +87,23 @@
   <!-- AFTER: clean upright page with music staves -->
   <rect x="984" y="100" width="168" height="208" rx="10" fill="#000000" opacity="0.32"/>
   <rect x="980" y="92" width="168" height="208" rx="10" fill="#ffffff"/>
-  <!-- three staves -->
-  <g stroke="#c3cad6" stroke-width="1.4">
-    <g>
-      <line x1="998" y1="124" x2="1134" y2="124"/><line x1="998" y1="132" x2="1134" y2="132"/><line x1="998" y1="140" x2="1134" y2="140"/><line x1="998" y1="148" x2="1134" y2="148"/><line x1="998" y1="156" x2="1134" y2="156"/>
-    </g>
-    <g>
-      <line x1="998" y1="186" x2="1134" y2="186"/><line x1="998" y1="194" x2="1134" y2="194"/><line x1="998" y1="202" x2="1134" y2="202"/><line x1="998" y1="210" x2="1134" y2="210"/><line x1="998" y1="218" x2="1134" y2="218"/>
-    </g>
-    <g>
-      <line x1="998" y1="248" x2="1134" y2="248"/><line x1="998" y1="256" x2="1134" y2="256"/><line x1="998" y1="264" x2="1134" y2="264"/><line x1="998" y1="272" x2="1134" y2="272"/><line x1="998" y1="280" x2="1134" y2="280"/>
-    </g>
+  <!-- generic document: heading + body text + a small figure -->
+  <rect x="998" y="116" width="74" height="8" rx="3" fill="#364fc7"/>
+  <g fill="#c7ced8">
+    <rect x="998" y="136" width="134" height="3.4" rx="1.7"/>
+    <rect x="998" y="148" width="134" height="3.4" rx="1.7"/>
+    <rect x="998" y="160" width="134" height="3.4" rx="1.7"/>
+    <rect x="998" y="172" width="104" height="3.4" rx="1.7"/>
+    <rect x="998" y="194" width="78"  height="3.4" rx="1.7"/>
+    <rect x="998" y="206" width="78"  height="3.4" rx="1.7"/>
+    <rect x="998" y="218" width="78"  height="3.4" rx="1.7"/>
+    <rect x="998" y="246" width="134" height="3.4" rx="1.7"/>
+    <rect x="998" y="258" width="134" height="3.4" rx="1.7"/>
+    <rect x="998" y="270" width="118" height="3.4" rx="1.7"/>
   </g>
-  <!-- note heads + stems (indigo accent) -->
-  <g fill="#364fc7">
-    <ellipse cx="1018" cy="148" rx="5.5" ry="3.8"/><rect x="1022.5" y="126" width="2" height="22" fill="#364fc7"/>
-    <ellipse cx="1046" cy="140" rx="5.5" ry="3.8"/><rect x="1050.5" y="118" width="2" height="22" fill="#364fc7"/>
-    <ellipse cx="1074" cy="132" rx="5.5" ry="3.8"/><rect x="1078.5" y="110" width="2" height="22" fill="#364fc7"/>
-    <ellipse cx="1102" cy="148" rx="5.5" ry="3.8"/><rect x="1106.5" y="126" width="2" height="22" fill="#364fc7"/>
-
-    <ellipse cx="1022" cy="210" rx="5.5" ry="3.8"/><rect x="1026.5" y="188" width="2" height="22" fill="#364fc7"/>
-    <ellipse cx="1058" cy="202" rx="5.5" ry="3.8"/><rect x="1062.5" y="180" width="2" height="22" fill="#364fc7"/>
-    <ellipse cx="1094" cy="194" rx="5.5" ry="3.8"/><rect x="1098.5" y="172" width="2" height="22" fill="#364fc7"/>
-  </g>
+  <!-- small embedded figure / thumbnail -->
+  <rect x="1088" y="190" width="44" height="40" rx="4" fill="#eef1f5" stroke="#d7dde6"/>
+  <circle cx="1100" cy="202" r="4" fill="#f6a839"/>
+  <polygon points="1093,224 1108,205 1123,224" fill="#9fb0e8"/>
+  <polygon points="1111,224 1121,211 1131,224" fill="#c4cdee"/>
 </svg>
