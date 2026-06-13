@@ -1,0 +1,45 @@
+# ---- OS cruft ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---- Editors / IDEs ----
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*~
+
+# ---- Logs / temp ----
+*.log
+*.tmp
+*.bak
+
+# ---- Node / tooling (only if you later add a build step) ----
+node_modules/
+dist/
+build/
+.cache/
+.env
+.env.local
+npm-debug.log*
+yarn-error.log*
+
+# ---- Local test images / scratch output ----
+# Uncomment if you keep sample photos or exports in the repo folder:
+# scans/
+# samples/
+# *.pdf
+
+# ---- Vendored libraries (for offline use) ----
+# PageClean fetches OpenCV from a CDN by default. If you bundle a local
+# copy for offline use, decide whether to commit it. opencv.js is large
+# (~8 MB); ignore it here unless you intend to track it.
+# opencv.js
+# jspdf.umd.min.js
